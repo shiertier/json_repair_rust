@@ -1,6 +1,6 @@
 [package]
 name = "json_repair_rust"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Fast, minimal JSON repair (truncation + trailing commas) implemented in Rust and exposed to Python via PyO3."
 license = "MIT"
