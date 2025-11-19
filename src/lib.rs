@@ -1,6 +1,7 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::types::{PyDict, PyList, PyModule, PyString};
+use pyo3::Bound;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -144,7 +145,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_object(&mut self, py: Python<'a>) -> PyResult<PyObject> {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         self.chars.next(); // skip '{'
 
         loop {
@@ -164,7 +165,7 @@ impl<'a> Parser<'a> {
             }
 
             let key_obj = self.parse_value(py)?;
-            if key_obj.downcast::<PyString>(py).is_err() {
+            if key_obj.downcast_bound::<PyString>(py).is_err() {
                 return Err(PyValueError::new_err(
                     "Object keys must be strings in json_repair_rust",
                 ));
@@ -193,10 +194,10 @@ impl<'a> Parser<'a> {
             }
             if ch == Some('}') {
                 self.chars.next();
-                return Ok(dict.into());
+                return Ok(dict.into_py(py));
             }
             if ch.is_none() {
-                return Ok(dict.into());
+                return Ok(dict.into_py(py));
             }
             return Err(PyValueError::new_err(
                 "Expected ',' or '}' in object in json_repair_rust",
@@ -205,7 +206,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_array(&mut self, py: Python<'a>) -> PyResult<PyObject> {
-        let list = PyList::empty(py);
+        let list = PyList::empty_bound(py);
         self.chars.next(); // skip '['
 
         loop {
@@ -216,7 +217,7 @@ impl<'a> Parser<'a> {
                 if ch == Some(']') {
                     self.chars.next();
                 }
-                return Ok(list.into());
+                return Ok(list.into_py(py));
             }
             if ch == Some(',') {
                 self.chars.next();
@@ -234,10 +235,10 @@ impl<'a> Parser<'a> {
             }
             if ch == Some(']') {
                 self.chars.next();
-                return Ok(list.into());
+                return Ok(list.into_py(py));
             }
             if ch.is_none() {
-                return Ok(list.into());
+                return Ok(list.into_py(py));
             }
             return Err(PyValueError::new_err(
                 "Expected ',' or ']' in array in json_repair_rust",
@@ -305,13 +306,13 @@ impl<'a> Parser<'a> {
             }
 
             if ch == quote {
-                return Ok(PyString::new(py, &out).into());
+                return Ok(PyString::new_bound(py, &out).into_py(py));
             }
 
             out.push(ch);
         }
 
-        Ok(PyString::new(py, &out).into())
+        Ok(PyString::new_bound(py, &out).into_py(py))
     }
 
     fn parse_number(&mut self, py: Python<'a>) -> PyResult<PyObject> {
@@ -333,7 +334,7 @@ impl<'a> Parser<'a> {
             return Ok(i.into_py(py));
         } else {
             // Fallback: delegate big integers to Python's arbitrary-precision int
-            let builtins = py.import("builtins")?;
+            let builtins = py.import_bound("builtins")?;
             let py_int = builtins.getattr("int")?.call1((s.clone(),))?;
             return Ok(py_int.into());
         }
@@ -368,7 +369,7 @@ fn repair_json(py: Python<'_>, json_str: &str) -> PyResult<PyObject> {
 }
 
 #[pymodule]
-fn json_repair_rust(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(repair_json, m)?)?;
+fn json_repair_rust(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction_bound!(repair_json, py)?)?;
     Ok(())
 }
