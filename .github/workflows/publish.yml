@@ -23,7 +23,14 @@ jobs:
           # The repo root is already json_repair_rust, so build from "."
           working-directory: .
           command: build
-          args: --release --out dist --sdist
+          # Build for CPython 3.11–3.13 explicitly to avoid unsupported 3.14
+          args: >
+            --release
+            --out dist
+            --sdist
+            -i python3.11
+            -i python3.12
+            -i python3.13
           manylinux: auto
 
       - name: Upload wheels as artifact
