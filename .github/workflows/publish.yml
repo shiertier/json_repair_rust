@@ -7,13 +7,8 @@ on:
 
 jobs:
   publish:
-    name: Build and publish with maturin
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Build wheels for the main desktop platforms
-        os: [ubuntu-latest, windows-latest, macos-15-intel, macos-latest]
+    name: Build and publish with maturin (linux)
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +25,6 @@ jobs:
             --username __token__
             --password $MATURIN_PASSWORD
             --skip-existing
-            --no-sdist
             -i python3.11
             -i python3.12
             -i python3.13
