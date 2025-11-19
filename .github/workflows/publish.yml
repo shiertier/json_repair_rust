@@ -6,56 +6,32 @@ on:
       - "v*"
 
 jobs:
-  build:
-    name: Build wheels
+  publish:
+    name: Build and publish with maturin
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Build wheels for the main desktop platforms
         os: [ubuntu-latest, windows-latest, macos-15-intel, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build wheels with maturin
+      - name: Build and publish to PyPI with maturin
         uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         with:
-          # The repo root is already json_repair_rust, so build from "."
           working-directory: .
-          command: build
-          # Build for CPython 3.11–3.13 explicitly to avoid unsupported 3.14
+          command: publish
+          # Build for CPython 3.11–3.13 explicitly (PyO3 0.22 max is 3.13)
           args: >
-            --release
-            --out dist
-            --sdist
+            --username __token__
+            --password $MATURIN_PASSWORD
+            --skip-existing
+            --no-sdist
             -i python3.11
             -i python3.12
             -i python3.13
           manylinux: auto
-
-      - name: Upload wheels as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.os }}
-          # Each job writes wheels into ./dist at repo root
-          path: dist
-
-  publish:
-    name: Publish to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          # Download all wheel artifacts into a single flat dist/ directory
-          pattern: wheels-*
-          merge-multiple: true
-          path: dist
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.8.14
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          # New kebab-case input name; action will recurse under this directory
-          packages-dir: dist
