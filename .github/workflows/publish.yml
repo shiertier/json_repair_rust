@@ -37,7 +37,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
-          path: json_repair_rust/dist
+          # Each job writes wheels into ./dist at repo root
+          path: dist
 
   publish:
     name: Publish to PyPI
@@ -53,4 +54,5 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.8.14
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-          packages_dir: dist
+          # New kebab-case input name; action will recurse under this directory
+          packages-dir: dist
