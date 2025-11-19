@@ -12,8 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Build wheels for the main desktop platforms
-        os: [ubuntu-latest, windows-latest, macos-15-intel, macos-latest]
+        # Build wheels for the main desktop platforms.
+        # macos-latest (arm64) + sdist covers macOS Intel via source install.
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
