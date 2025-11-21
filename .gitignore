@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+*.pyc
+__pycache__
+.venv
+.env
+.DS_Store

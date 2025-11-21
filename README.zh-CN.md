@@ -1,89 +1,73 @@
 # json-repair-rust（中文说明）
 
-Rust 实现的极简 JSON “修复”库，通过 [PyO3](https://github.com/PyO3/pyo3) 和 [maturin](https://github.com/PyO3/maturin) 暴露给 Python 使用。
+Rust 实现的 **确定性 JSON 轻量修复 + 基于 Schema 的提取** 工具，通过 [PyO3](https://github.com/PyO3/pyo3) 和 [maturin](https://github.com/PyO3/maturin) 暴露为 Python 模块 `llm_json_utils`（PyPI 包名 `json-repair-rust`）。
 
-与很多“智能修复”库不同，它只做极少数、**明确定义的结构性修复**，拒绝一切“猜测用户想要什么”的魔法行为。
+## 提供的 API
 
-## 这个库会做什么（能力）
+- `repair_json(text: str) -> Any` —— 严格、最小化的 JSON 修复。
+- `JsonExtractor(schema)` —— 按给定 Schema，在含噪声的文本/字节流里寻找并提取 JSON。
 
-- **只修复简单、结构性错误**（典型 LLM / 日志输出场景）：
-  - 自动闭合被截断的对象/数组  
-    例如：`{"a": 1` 在 EOF 停止时，被视为 `{"a": 1}`。
-  - 允许对象/数组中的尾逗号  
-    例如：`{"a": 1,}`、`[1, 2,]`。
+## `repair_json`：确定性结构修复
 
-- **支持并忽略注释**：
-  - 行注释：`// ...`、`# ...`
-  - 块注释：`/* ... */`
+- EOF 时自动闭合对象/数组，接受尾逗号。
+- 忽略 `//` / `#` 行注释、`/*...*/` 块注释，以及 Markdown fenced code block，Markdown 可直接喂给它。
+- 数字行为与 Python 一致：整数 -> `int`，浮点 -> `float`，超大整数交给 Python `int()`，不丢精度。
+- 保留未知转义和损坏的 `\u` 序列，不会吞字符。
+- 真正的结构错误（缺少冒号、分隔符错等）直接抛出 `ValueError`，绝不瞎猜。
 
-- **数字行为与 Python 保持一致**：
-  - 普通整数 → Python `int`
-  - 浮点数 → Python `float`
-  - 超过 `i64` 范围的大整数，会退回给 Python 的 `int()` 处理，保持**任意精度**，不丢数据。
+## `JsonExtractor`：Schema 驱动的 LLM/日志提取器
 
-- **保留未知转义和损坏的 `\u` 序列**：
-  - 未知转义（例如 `"\w"`）会被保留为文本 `\\w`，不会静默丢掉反斜杠。
-  - 损坏的 Unicode 转义（例如 `"\u123z"`），会以文本 `"\\u123z"` 形式保留，不会只剩一个 `\u`。
+- 接受简化版 JSON Schema（`type` / `properties` / `items` / 可选 `required`），内部用 Aho-Corasick 锚点定位字段，找到第一个符合 Schema 的对象。
+- 能容忍常见噪声：缺/多逗号、截断的容器、数字后跟单位或 `%`、未转义的引号、单/全角引号、带千分位的数字等。
+- 直接处理 `bytes` 以避免编码问题，会自动从第一个 `{` 开始扫描，匹配成功即返回。
+- 安全阈值：递归深度上限 128，字符串最长 1MB；缺少 `required` 字段时抛出 `ValueError`。
+- 不会凭空生成字段，也不会强行把未知字面量塞进结果。
 
-## 这个库不会做什么（刻意不做）
+## 设计理念
 
-- **不会“猜”用户的意图**：
-  - 不会凭空补全缺失的 key / 冒号 / 引号。
-  - 不会把任意一坨文本“尽量解释成 JSON”。
-  - 真正的结构性错误（如缺少 `:`）会直接抛出 `ValueError`，而不是“帮你猜”。
-
-- **不会悄悄修改数据**：
-  - 不会把 `None`、`NaN`、`Infinity` 等非 JSON 标准值自动转换成合法 JSON。
-  - 不会吞掉未知转义或损坏的 `\u` 后面的字符。
-
-- **不会尝试解析多个顶层文档**：
-  - 只解析**一个**顶层 JSON 值。
-  - 输入多余内容会被忽略，而不是尝试拼接多个文档。
-
-## 为什么要这样设计（设计哲学）
-
-- **确定性优先于“聪明”启发式**  
-  JSON 修复工具的职责是修复少量、明确、结构性的错误，而不是替上游的 LLM / 日志系统背锅，更不能把垃圾输入“凑合修好”。  
-  一旦 Parser 开始猜测，行为就变得不可预测，bug 也会被掩盖。
-
-- **数据安全优先于“方便”**  
-  静默丢字符、乱改转义、自动转换奇怪的字面量，看似“好用”，本质上是**数据损坏**。  
-  这个库的策略是：
-  - 对明确安全的问题（截断、尾逗号、注释）进行修复；
-  - 对其它模糊情况直接报错，让调用方自己决定如何处理。
-
-- **简单 + 高性能**  
-  解析器是一个小而直接的递归下降实现：
-  - 不搞复杂状态机；
-  - 不在热路径上做不必要的堆分配；
-  - 暴露给 Python 的就是一个函数：`repair_json(str) -> Any`。
+- **确定性优先**：只修复明确且安全的小问题，模糊输入直接报错，避免掩盖上游 bug。
+- **Schema 当护栏**：提取依赖字段锚点，不尝试把任意长文本“硬解释成 JSON”。
+- **小而快**：手写递归下降解析器，热路径零多余分配。
 
 ## Python 使用示例
 
-```python
-from json_repair_rust import repair_json
+严格修复：
 
-data = repair_json('{"a": 1, "b": [1,2,],}')
+```python
+from llm_json_utils import repair_json
+
+data = repair_json('{"a": 1, "b": [1,2,],} // 尾逗号无压力')
 assert data == {"a": 1, "b": [1, 2]}
 ```
 
-大整数示例：
+基于 Schema 的提取：
 
 ```python
-from json_repair_rust import repair_json
+from llm_json_utils import JsonExtractor
+
+schema = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "score": {"type": "number"},
+    },
+    "required": ["summary"],
+}
+
+extractor = JsonExtractor(schema)
+blob = b"思考中... {'summary': 'Done', 'score': 95.5 %} 谢谢！"
+data = extractor.extract(blob)
+assert data["summary"] == "Done"
+assert data["score"] == 95.5
+```
+
+大整数示例（修复器）：
+
+```python
+from llm_json_utils import repair_json
 
 data = repair_json('{"id": 123456789012345678901234567890}')
 assert isinstance(data["id"], int)
-```
-
-损坏转义示例（不会丢数据）：
-
-```python
-from json_repair_rust import repair_json
-
-data = repair_json(r'{"path": "C:\\Windows", "weird": "\\u123z"}')
-assert data["path"] == r"C:\Windows"
-assert data["weird"] == r"\u123z"
 ```
 
 ## 本地构建（开发者）
@@ -92,19 +76,21 @@ assert data["weird"] == r"\u123z"
 pip install maturin
 maturin develop
 
-python -c "from json_repair_rust import repair_json; print(repair_json('{\"x\": 1,}'))"
+python - <<'PY'
+from llm_json_utils import repair_json
+print(repair_json('{"x": 1,}'))
+PY
 ```
 
-## 适用场景
+## 适用 / 不适用
 
-适合这些场景：
+适合：
 
-- LLM 生成的 JSON 不时多一个尾逗号或被截断；
-- 日志/配置中混杂注释和轻微格式错误；
-- 希望在 **不改变语义、不掩盖错误** 的前提下，对 JSON 做有限修复。
+- LLM 生成的 JSON 偶尔截断、缺/多逗号；
+- 需要从长对话、日志或 Markdown 里抽取结构化字段；
+- 想在**不更改语义、不掩盖错误**前提下做有限修复。
 
-不适合这些场景：
+不适合：
 
-- 你希望“无论输入多烂都能给你一个 JSON”；  
-- 想用它来“纠正”上游系统的设计问题，而不是修复少量流式/截断错误。
-
+- 期望“无论输入多烂都能给一个 JSON”；
+- 想靠它掩盖上游系统/Prompt 的结构性问题或把任意文本 JSON 化。

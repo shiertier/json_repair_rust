@@ -1,63 +1,66 @@
 # json-repair-rust
 
-Fast, minimal JSON "repair" implemented in Rust and exposed to Python via [PyO3](https://github.com/PyO3/pyo3) and [maturin](https://github.com/PyO3/maturin).
+Rust/Python utilities for **deterministic JSON cleanup** and **schema-guided extraction** from messy LLM/log output. Exposed via [PyO3](https://github.com/PyO3/pyo3) + [maturin](https://github.com/PyO3/maturin) as the module `llm_json_utils` (PyPI package name `json-repair-rust`).
 
 > 简体中文文档请见：[README.zh-CN.md](README.zh-CN.md)
 
-## What this library does
+## APIs in this crate
 
-- **Repairs only simple, structural issues** that are common in LLM / log output:
-  - Auto‑closes truncated objects/arrays at end of input  
-    (e.g. `{"a": 1` → behaves like `{"a": 1}`).
-  - Allows **trailing commas** in objects/arrays  
-    (e.g. `{"a": 1,}` or `[1, 2,]`).
-- **Accepts comments** and ignores them during parsing:
-  - Line comments: `// ...` and `# ...`
-  - Block comments: `/* ... */`
-- **Parses numbers like Python**:
-  - Normal integers → `int`
-  - Floats → `float`
-  - Integers that overflow `i64` are delegated to Python’s `int()`
-    so you keep arbitrary‑precision integers.
-- **Preserves unknown escapes and broken `\u` sequences**:
-  - `"\w"` stays as `\\w` in the result.
-  - `"\u123z"` becomes the literal text `"\\u123z"` instead of losing `"123z"`.
+- `repair_json(text: str) -> Any` - strict, minimal JSON repair.
+- `JsonExtractor(schema)` - finds a schema-shaped object inside noisy bytes/strings and returns Python values.
 
-## What this library intentionally does NOT do
+## `repair_json`: deterministic structural patcher
 
-- **No “AI‑style guessing” or content magic**:
-  - Does *not* invent missing keys, colons, or quotes.
-  - Does *not* try to interpret random text as JSON.
-  - On real structural errors (e.g. missing `:` between key/value), it raises `ValueError`.
-- **No silent data changes**:
-  - Does *not* coerce non‑JSON literals (e.g. `None`, `NaN`) into JSON.
-  - Does *not* drop unknown escape sequences or malformed `\u` data.
-- **No multiple top‑level documents**:
-  - It parses **one** JSON value from the input and ignores any trailing garbage instead of trying to stitch multiple documents together.
+- Auto-closes truncated objects/arrays at EOF and tolerates trailing commas.
+- Ignores `//` / `#` line comments, `/*...*/` block comments, and fenced ``` ``` code blocks so you can feed Markdown directly.
+- Parses numbers like Python: ints -> `int`, floats -> `float`, huge ints -> Python `int` (arbitrary precision).
+- Preserves unknown escapes and broken `\u` sequences instead of dropping data.
+- Raises `ValueError` on real structural errors (missing `:`, mismatched delimiters, etc.) rather than guessing user intent.
 
-## Why it is designed this way
+## `JsonExtractor`: schema-guided extraction for LLM/log text
 
-- **Determinism over “smart” heuristics**  
-  A JSON repair tool should fix clearly‑defined structural glitches, not guess user intent. Guessing makes behavior non‑deterministic and hides upstream bugs (bad prompts, bad models, bad producers).
+- Accepts a minimal JSON-Schema-like dict (`type`, `properties`, `items`, optional `required`), builds Aho-Corasick anchors for field names, then hunts for the first object that matches the schema.
+- Robust to the typical noise around LLM replies: missing/extra commas, truncated containers, stray `%`/units after numbers, unescaped quotes, single/full-width quotes, and thousand separators in numbers.
+- Works on bytes to avoid encoding surprises; will scan for `{` automatically and stops once a schema-shaped object is parsed.
+- Enforces safety valves: recursion depth capped at 128 and strings capped at 1 MB; missing `required` fields surface as `ValueError`.
+- Will not synthesize fields or coerce unknown literals; it only extracts what the schema anchors allow.
 
-- **Safety over convenience**  
-  Swallowing characters, normalizing exotic literals, or silently fixing arbitrary text looks convenient but amounts to **data corruption**. This library prefers to:
-  - repair what is obviously safe (truncation, trailing commas, comments),
-  - and fail loudly on everything else.
+## Design principles
 
-- **Performance and simplicity**  
-  The parser is a small, linear, recursive‑descent implementation in Rust. It:
-  - avoids complex state machines,
-  - avoids per‑character heap allocations,
-  - and exposes a single `repair_json(str) -> Any` API to Python.
+- **Deterministic fixes only** - patch small, well-defined structural glitches; fail loudly on ambiguous input.
+- **Schema as the guardrail** - extraction is anchored by known field names so we avoid "hallucinating" structure from arbitrary prose.
+- **Fast and small** - hand-rolled recursive descent with zero per-character allocations on the hot path.
 
 ## Python usage
 
-```python
-from json_repair_rust import repair_json
+Strict repair:
 
-obj = repair_json('{"a": 1, "b": [1,2,],}')
+```python
+from llm_json_utils import repair_json
+
+obj = repair_json('{"a": 1, "b": [1,2,],} // trailing comma is fine')
 assert obj == {"a": 1, "b": [1, 2]}
+```
+
+Schema-guided extraction:
+
+```python
+from llm_json_utils import JsonExtractor
+
+schema = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "score": {"type": "number"},
+    },
+    "required": ["summary"],
+}
+
+extractor = JsonExtractor(schema)
+blob = b"Thoughts... {'summary': 'Done', 'score': 95.5 %} Thanks!"
+data = extractor.extract(blob)
+assert data["summary"] == "Done"
+assert data["score"] == 95.5
 ```
 
 ## Build locally
@@ -65,5 +68,8 @@ assert obj == {"a": 1, "b": [1, 2]}
 ```bash
 pip install maturin
 maturin develop
-python -c "from json_repair_rust import repair_json; print(repair_json('{\"x\": 1,}'))"
+python - <<'PY'
+from llm_json_utils import repair_json
+print(repair_json('{"x": 1,}'))
+PY
 ```

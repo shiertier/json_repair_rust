@@ -1,6 +1,6 @@
 [package]
-name = "json_repair_rust"
-version = "0.1.7"
+name = "llm_json_utils"
+version = "2.0.0"
 edition = "2021"
 description = "Fast, minimal JSON repair (truncation + trailing commas) implemented in Rust and exposed to Python via PyO3."
 license = "MIT"
@@ -11,8 +11,18 @@ keywords = ["json", "parser", "repair", "pyo3", "maturin"]
 categories = ["api-bindings", "parsing"]
 
 [lib]
-name = "json_repair_rust"
-crate-type = ["cdylib"]
+name = "llm_json_utils"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.20", features = ["abi3-py39"] }
+memchr = "2.7"
+ahash = "0.8"
+smallvec = { version = "1.11", features = ["union", "const_generics"] }
+aho-corasick = "1.1"
+
+[features]
+# 默认禁用 extension-module，便于在本地直接 cargo test / cargo check，
+# 打包 Python 模块时再显式开启。
+default = []
+extension-module = ["pyo3/extension-module"]
