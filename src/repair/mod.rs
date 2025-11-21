@@ -32,16 +32,6 @@ impl<'a> Parser<'a> {
             }
 
             if ch == '/' {
-                // Check next char without consuming '/' yet if possible,
-                // but Peekable only gives us 1 lookahead.
-                // So we must consume '/' to check the next one.
-                // If it's not a comment, we are in trouble because we can't put it back.
-                // BUT: In JSON, '/' is only valid in strings (handled elsewhere) or comments.
-                // It cannot start a value.
-                // So if we see '/', it MUST be a comment or an error.
-                // Wait, strict JSON doesn't allow comments, but we do.
-                // If it's not a comment, it's an invalid char anyway.
-                // So we can safely consume it.
                 self.chars.next(); // consume '/'
                 match self.chars.peek() {
                     Some('/') => {
@@ -54,19 +44,6 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     _ => {
-                        // Not a comment. Since '/' is invalid start of value,
-                        // we can just let the next parse_value call fail on it
-                        // or fail here. But `skip` functions usually just skip what they know.
-                        // However, we already consumed '/'.
-                        // If we return now, the next call sees the char AFTER '/'.
-                        // This might be confusing.
-                        // But wait, `parse_value` calls `skip_whitespace...` first.
-                        // If we consumed '/', `parse_value` will see the next char.
-                        // If the next char is 'a', it errors "Unexpected character 'a'".
-                        // The error message won't mention '/'.
-                        // This is a slight deviation but acceptable for "repair" logic
-                        // that assumes if it looks like a comment, it is one.
-                        // If it's just a lone slash, it's garbage.
                         return;
                     }
                 }
@@ -74,9 +51,6 @@ impl<'a> Parser<'a> {
 
             // Markdown-style fenced code blocks: ```json ... ```
             if ch == '`' {
-                // We need to check for 3 backticks.
-                // We can consume them. If we don't find 3, it's invalid syntax anyway
-                // (JSON doesn't start with backtick).
                 self.chars.next(); // 1st
                 if let Some('`') = self.chars.peek() {
                     self.chars.next(); // 2nd
@@ -86,8 +60,6 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                 }
-                // If we are here, we saw 1 or 2 backticks but not 3.
-                // It's garbage.
                 return;
             }
 
@@ -156,13 +128,27 @@ impl<'a> Parser<'a> {
                 }
             }
             'n' | 'N' => {
+                // Support both "null" and "None"
                 if self.match_literal("null") {
                     Ok(py.None())
+                } else if self.match_literal("none") {
+                    Ok(py.None())
+                } else if self.match_literal("nan") {
+                    Ok(f64::NAN.into_py(py))
                 } else {
-                    Err(PyValueError::new_err("Invalid null literal"))
+                    Err(PyValueError::new_err("Invalid null/None/NaN literal"))
                 }
             }
-            '-' | '0'..='9' => self.parse_number(py),
+            'i' | 'I' => {
+                if self.match_literal("infinity") {
+                    Ok(f64::INFINITY.into_py(py))
+                } else if self.match_literal("inf") {
+                    Ok(f64::INFINITY.into_py(py))
+                } else {
+                    Err(PyValueError::new_err("Invalid infinity literal"))
+                }
+            }
+            '-' | '+' | '0'..='9' | '.' => self.parse_number(py),
             _ => Err(PyValueError::new_err(format!(
                 "Unexpected character {ch:?} while parsing value"
             ))),
@@ -189,11 +175,16 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let key_obj = self.parse_value(py)?;
+            // Parse Key
+            // STRICT: Keys MUST be strings (quoted)
+            let ch = self.chars.peek().copied();
+            if ch != Some('"') && ch != Some('\'') {
+                return Err(PyValueError::new_err("Object keys must be strings"));
+            }
+
+            let key_obj = self.parse_string(py)?;
             if key_obj.downcast::<PyString>(py).is_err() {
-                return Err(PyValueError::new_err(
-                    "Object keys must be strings in llm_json_utils",
-                ));
+                return Err(PyValueError::new_err("Object keys must be strings"));
             }
 
             self.skip_whitespace_and_comments();
@@ -202,9 +193,7 @@ impl<'a> Parser<'a> {
                     self.chars.next();
                 }
                 _ => {
-                    return Err(PyValueError::new_err(
-                        "Expected ':' after object key in llm_json_utils",
-                    ));
+                    return Err(PyValueError::new_err("Expected ':' after object key"));
                 }
             }
 
@@ -224,9 +213,8 @@ impl<'a> Parser<'a> {
             if ch.is_none() {
                 return Ok(dict.into_py(py));
             }
-            return Err(PyValueError::new_err(
-                "Expected ',' or '}' in object in llm_json_utils",
-            ));
+            // If we are here, we expected ',' or '}' but got something else.
+            return Err(PyValueError::new_err("Expected ',' or '}' in object"));
         }
     }
 
@@ -265,9 +253,7 @@ impl<'a> Parser<'a> {
             if ch.is_none() {
                 return Ok(list.into_py(py));
             }
-            return Err(PyValueError::new_err(
-                "Expected ',' or ']' in array in llm_json_utils",
-            ));
+            return Err(PyValueError::new_err("Expected ',' or ']' in array"));
         }
     }
 
@@ -290,7 +276,6 @@ impl<'a> Parser<'a> {
                     'f' => out.push('\x0c'),
                     '"' | '\'' | '\\' | '/' => out.push(esc),
                     'u' => {
-                        // Stack buffer of chars; preserve all read chars on failure.
                         let mut buffer = ['\0'; 4];
                         let mut count = 0usize;
                         let mut valid_hex = true;
@@ -315,14 +300,12 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         }
-                        // Malformed unicode escape: emit "\u" plus whatever we consumed
                         out.push_str("\\u");
                         for i in 0..count {
                             out.push(buffer[i]);
                         }
                     }
                     other => {
-                        // Preserve unknown escapes like \w as two characters
                         out.push('\\');
                         out.push(other);
                     }
@@ -365,7 +348,7 @@ impl<'a> Parser<'a> {
         }
 
         Err(PyValueError::new_err(format!(
-            "Invalid number literal {s:?} in llm_json_utils"
+            "Invalid number literal {s:?}"
         )))
     }
 
@@ -379,9 +362,7 @@ impl<'a> Parser<'a> {
         }
         // Only now advance the real iterator
         for _ in 0..expected.len() {
-            if self.chars.next().is_none() {
-                break;
-            }
+            self.chars.next();
         }
         true
     }
@@ -389,6 +370,25 @@ impl<'a> Parser<'a> {
 
 #[pyfunction]
 pub fn repair_json(py: Python<'_>, json_str: &str) -> PyResult<PyObject> {
+    // 1. Try direct parse first (fast path)
     let mut parser = Parser::new(json_str);
-    parser.parse_value(py)
+    if let Ok(res) = parser.parse_value(py) {
+        return Ok(res);
+    }
+
+    // 2. If direct parse fails, try to find the first '{' or '['
+    // We iterate through the string to find potential start positions
+    let mut chars = json_str.char_indices().peekable();
+
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '{' || ch == '[' {
+            // Try parsing from here
+            let mut sub_parser = Parser::new(&json_str[idx..]);
+            if let Ok(res) = sub_parser.parse_value(py) {
+                return Ok(res);
+            }
+        }
+    }
+
+    Err(PyValueError::new_err("No valid JSON found"))
 }
