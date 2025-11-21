@@ -1,6 +1,6 @@
-# json-repair-rust
+# llm_json_repair
 
-Rust/Python utilities for **deterministic JSON cleanup** and **schema-guided extraction** from messy LLM/log output. Exposed via [PyO3](https://github.com/PyO3/pyo3) + [maturin](https://github.com/PyO3/maturin) as the module `llm_json_utils` (PyPI package name `json-repair-rust`).
+Rust/Python utilities for **deterministic JSON cleanup** and **schema‑guided extraction** from messy LLM/log output. Exposed via [PyO3](https://github.com/PyO3/pyo3) + [maturin](https://github.com/PyO3/maturin) as the module `llm_json_utils` (PyPI package name `llm-json-utils`, repo `llm_json_repair`).
 
 > 简体中文文档请见：[README.zh-CN.md](README.zh-CN.md)
 

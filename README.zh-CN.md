@@ -1,6 +1,6 @@
-# json-repair-rust（中文说明）
+# llm_json_repair（中文说明）
 
-Rust 实现的 **确定性 JSON 轻量修复 + 基于 Schema 的提取** 工具，通过 [PyO3](https://github.com/PyO3/pyo3) 和 [maturin](https://github.com/PyO3/maturin) 暴露为 Python 模块 `llm_json_utils`（PyPI 包名 `json-repair-rust`）。
+Rust 实现的 **确定性 JSON 轻量修复 + 基于 Schema 的提取** 工具，通过 [PyO3](https://github.com/PyO3/pyo3) 和 [maturin](https://github.com/PyO3/maturin) 暴露为 Python 模块 `llm_json_utils`（PyPI 包名 `llm-json-utils`，仓库名 `llm_json_repair`）。
 
 ## 提供的 API
 

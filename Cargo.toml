@@ -5,8 +5,8 @@ edition = "2021"
 description = "Fast, minimal JSON repair (truncation + trailing commas) implemented in Rust and exposed to Python via PyO3."
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/shiertier/json_repair_rust"
-homepage = "https://github.com/shiertier/json_repair_rust"
+repository = "https://github.com/shiertier/llm_json_repair"
+homepage = "https://github.com/shiertier/llm_json_repair"
 keywords = ["json", "parser", "repair", "pyo3", "maturin"]
 categories = ["api-bindings", "parsing"]
 

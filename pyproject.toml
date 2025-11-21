@@ -21,8 +21,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/shiertier/json_repair_rust"
-Repository = "https://github.com/shiertier/json_repair_rust"
+Homepage = "https://github.com/shiertier/llm_json_repair"
+Repository = "https://github.com/shiertier/llm_json_repair"
 
 [tool.maturin]
 bindings = "pyo3"
