@@ -1,6 +1,6 @@
 [package]
 name = "llm_json_utils"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Fast, minimal JSON repair (truncation + trailing commas) implemented in Rust and exposed to Python via PyO3."
 license = "MIT"
